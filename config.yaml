@@ -1,0 +1,79 @@
+target_lang: zh
+translator_model: Helsinki-NLP/opus-mt-ja-zh
+font_path: C:/Windows/Fonts/arial.ttf
+max_font_size: 36
+min_font_size: 16
+line_spacing: 1.15
+bubble_padding: 6
+min_confidence: 0.6
+debug_draw: true
+force_horizontal: true
+use_gpu: true
+translator_batch: 16
+torch_dtype: auto
+vertical_text: auto
+vertical_ratio_trigger: 1.3
+stroke_width: 2
+stroke_fill:
+- 0
+- 0
+- 0
+text_fill:
+- 255
+- 255
+- 255
+translation_column: translation
+csv_encoding: utf-8-sig
+detector: hybrid
+mser_min_area: 200
+mser_max_area_ratio: 0.2
+mser_delta: 5
+mser_variation: 0.2
+style: zh_sans
+styles:
+  zh_serif:
+    font_path: C:/Windows/Fonts/NotoSerifSC-VF.ttf
+    text_fill:
+    - 255
+    - 255
+    - 255
+    stroke_fill:
+    - 0
+    - 0
+    - 0
+    stroke_width: 2
+    line_spacing: 1.15
+  zh_sans:
+    font_path: C:/Windows/Fonts/NotoSansSC-VF.ttf
+    text_fill:
+    - 255
+    - 255
+    - 255
+    stroke_fill:
+    - 0
+    - 0
+    - 0
+    stroke_width: 2
+    line_spacing: 1.15
+  en_comic:
+    font_path: C:/Windows/Fonts/arial.ttf
+    text_fill:
+    - 0
+    - 0
+    - 0
+    stroke_fill:
+    - 255
+    - 255
+    - 255
+    stroke_width: 2
+    line_spacing: 1.1
+sfx_enable: true
+sfx_font_path: C:/Windows/Fonts/NotoSansSC-VF.ttf
+sfx_min_aspect: 3.0
+sfx_alpha: 220
+sfx_rotation_auto: true
+sd_inpaint_enable: false
+sd_rest_url: http://127.0.0.1:8188
+sd_export_masks_dir: ./sd_masks
+sd_prompt: clean background where text was removed, preserve manga art style
+sd_strength: 0.6

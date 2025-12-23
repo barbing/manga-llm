@@ -1,0 +1,19 @@
+# Core
+pillow
+opencv-python
+numpy
+pandas
+pyyaml
+
+# OCR
+paddleocr==2.7.0.3
+# Manga-OCR (high-accuracy JP text)
+manga-ocr
+
+# Translation (offline)
+transformers>=4.41
+sentencepiece
+sacremoses
+
+# Utils
+tqdm
