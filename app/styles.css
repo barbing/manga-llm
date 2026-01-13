@@ -1,0 +1,118 @@
+* {
+  box-sizing: border-box;
+  font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0f1115;
+  color: #eef1f5;
+}
+
+.app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.header h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+}
+
+.header p {
+  margin: 0;
+  color: #a9b2c3;
+}
+
+.card {
+  background: #171b22;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #232a36;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #cfd6e4;
+  font-size: 14px;
+}
+
+input,
+select {
+  background: #0f131a;
+  border: 1px solid #2a3342;
+  color: #eef1f5;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.btn {
+  background: #2f6fed;
+  border: none;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn.secondary {
+  background: #3b4355;
+}
+
+.btn.primary {
+  background: #22c55e;
+}
+
+.path {
+  color: #a9b2c3;
+  font-size: 13px;
+}
+
+.progress {
+  height: 10px;
+  background: #0f131a;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #2a3342;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #2f6fed);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  color: #a9b2c3;
+  font-size: 13px;
+  margin-bottom: 12px;
+}

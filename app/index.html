@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manga Translator Remake</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  </head>
+  <body>
+    <div id="app" class="app">
+      <header class="header">
+        <h1>Manga Translator Remake</h1>
+        <p>Import → Settings → Output → Start</p>
+      </header>
+
+      <section class="card">
+        <h2>Input</h2>
+        <div class="row">
+          <button class="btn" @click="pickFolder">Import Folder</button>
+          <button class="btn secondary" @click="pickFiles">Import Images</button>
+        </div>
+        <div class="path" v-if="inputFolder">Folder: {{ inputFolder }}</div>
+        <div class="path" v-if="inputFiles.length">Files: {{ inputFiles.length }} selected</div>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+        <div class="grid">
+          <label>
+            Output Language
+            <select v-model="targetLang">
+              <option value="zh-CN">Simplified Chinese</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label>
+            Translation Model
+            <select v-model="model">
+              <option value="huihui_ai/qwen3-abliterated:14b">qwen3-abliterated:14b (default)</option>
+              <option value="aya:35b">aya:35b</option>
+            </select>
+          </label>
+          <label>
+            Style Preset
+            <select v-model="style">
+              <option value="modern_casual">Modern Casual</option>
+              <option value="formal">Formal</option>
+              <option value="literal">Literal</option>
+            </select>
+          </label>
+          <label>
+            Glossary (optional JSON)
+            <input type="text" v-model="glossaryPath" placeholder="path/to/glossary.json" />
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Output</h2>
+        <div class="row">
+          <button class="btn" @click="pickOutput">Choose Output Folder</button>
+          <div class="path" v-if="outputFolder">{{ outputFolder }}</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Progress</h2>
+        <div class="progress">
+          <div class="progress-bar" :style="{ width: progress + '%' }"></div>
+        </div>
+        <div class="progress-meta">
+          <span>{{ status }}</span>
+          <span>ETA: {{ eta }}</span>
+        </div>
+        <button class="btn primary" @click="start">Start</button>
+      </section>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

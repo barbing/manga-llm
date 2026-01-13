@@ -18,6 +18,7 @@ class App:
         self.output_dir = tk.StringVar()
         self.csv_path = tk.StringVar()
         self.mode = tk.StringVar(value="full")
+        self.target_lang = tk.StringVar(value="zh")
         self.log = tk.StringVar()
         self.preview_img = None
 
@@ -40,6 +41,11 @@ class App:
         tk.Label(frm, text="CSV (for typeset mode)").pack(anchor="w")
         row("Pick CSV", self.csv_path, False)
 
+        lang_row = tk.Frame(frm)
+        lang_row.pack(anchor="w", pady=4)
+        tk.Label(lang_row, text="Output language").pack(side="left")
+        tk.OptionMenu(lang_row, self.target_lang, "zh", "en").pack(side="left", padx=6)
+
         modes = tk.Frame(frm); modes.pack(anchor="w", pady=4)
         tk.Radiobutton(modes, text="Full (OCR+MT+Typeset)", variable=self.mode, value="full").pack(side="left")
         tk.Radiobutton(modes, text="Typeset only (from CSV)", variable=self.mode, value="typeset").pack(side="left")
@@ -56,6 +62,8 @@ class App:
 
     def run(self):
         args = [sys.executable, "translate_manga.py", "--output", self.output_dir.get() or "./output_pages"]
+        if self.target_lang.get():
+            args += ["--target-lang", self.target_lang.get()]
         if self.mode.get()=="full":
             args += ["--input", self.input_dir.get() or "./input_pages"]
         else:
