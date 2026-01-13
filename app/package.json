@@ -1,0 +1,12 @@
+{
+  "name": "manga-translator-remake",
+  "version": "0.1.0",
+  "description": "Electron + Vue GUI for the manga translator remake.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}

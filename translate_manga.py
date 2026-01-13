@@ -1,5 +1,5 @@
 
-import os, csv, math, io
+import os, csv, math, io, json
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 import numpy as np
@@ -128,7 +128,10 @@ def main():
     ap.add_argument("--output", required=True, help="Folder to save outputs")
     ap.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     ap.add_argument("--csv", default="", help="Typeset-only mode: path to _extractions.csv")
-    ap.add_argument("--mode", default="full", choices=["full", "typeset"], help="full = OCR+translate+typeset; typeset = read boxes+translations from CSV and redraw")
+    ap.add_argument("--mode", default="full", choices=["full", "typeset", "typeset_json"], help="full = OCR+translate+typeset; typeset = read boxes+translations from CSV and redraw; typeset_json = read boxes+translations from JSON and redraw")
+    ap.add_argument("--target-lang", default="", help="Override target language (e.g. zh or en)")
+    ap.add_argument("--translator-model", default="", help="Override translation model")
+    ap.add_argument("--json-dir", default="", help="Directory for JSON exports (full mode) or imports (typeset_json)")
     args = ap.parse_args()
 
     with open(args.config, "r", encoding="utf-8") as f:
@@ -138,8 +141,12 @@ def main():
     dbg_dir = os.path.join(args.output, "_debug_overlays")
     os.makedirs(dbg_dir, exist_ok=True)
 
-    target_lang = cfg.get("target_lang", "en")
-    translator_model = cfg.get("translator_model", "Helsinki-NLP/opus-mt-ja-en")
+    target_lang = (args.target_lang or cfg.get("target_lang") or "en").lower()
+    default_models = {
+        "zh": "Helsinki-NLP/opus-mt-ja-zh",
+        "en": "Helsinki-NLP/opus-mt-ja-en",
+    }
+    translator_model = args.translator_model or cfg.get("translator_model") or default_models.get(target_lang, "Helsinki-NLP/opus-mt-ja-en")
     font_path = cfg.get("font_path")
     max_font_size = int(cfg.get("max_font_size", 36))
     min_font_size = int(cfg.get("min_font_size", 16))
@@ -157,7 +164,13 @@ def main():
     mser_max_area_ratio = float(cfg.get("mser_max_area_ratio", 0.2))
     mser_delta = int(cfg.get("mser_delta", 5))
     mser_variation = float(cfg.get("mser_variation", 0.2))
-    style_key = str(cfg.get("style", "zh_sans"))
+    stroke_width = int(cfg.get("stroke_width", 2))
+    stroke_fill = tuple(cfg.get("stroke_fill", [255,255,255]))
+    text_fill = tuple(cfg.get("text_fill", [0,0,0]))
+    if "style" in cfg:
+        style_key = str(cfg.get("style"))
+    else:
+        style_key = "en_comic" if target_lang == "en" else "zh_sans"
     styles = cfg.get("styles", {})
     if style_key in styles:
         st = styles[style_key]
@@ -178,11 +191,12 @@ def main():
     sd_strength = float(cfg.get("sd_strength", 0.6))
 
     vertical_ratio_trigger = float(cfg.get("vertical_ratio_trigger", 1.6))
-    stroke_width = int(cfg.get("stroke_width", 2))
-    stroke_fill = tuple(cfg.get("stroke_fill", [255,255,255]))
-    text_fill = tuple(cfg.get("text_fill", [0,0,0]))
     translation_column = cfg.get("translation_column", "translation")
     csv_encoding = cfg.get("csv_encoding", "utf-8-sig")
+
+    json_dir = args.json_dir or cfg.get("json_dir", "")
+    if not json_dir:
+        json_dir = os.path.join(args.output, "_translations_json")
 
     if args.mode == "typeset":
         if not args.csv:
@@ -226,75 +240,70 @@ def main():
 
             out_pil = Image.fromarray(cv2.cvtColor(clean, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(out_pil)
+            overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+            draw_ov = ImageDraw.Draw(overlay)
 
             for idx, (box, tr) in enumerate(zip(boxes_xyxy, translations)):
-            if not tr or not tr.strip():
-                continue
-            # Per-bubble orientation override
-            ovr = orient_list[idx] if idx < len(orient_list) else None
-            if isinstance(ovr, str):
-                ovr = ovr.strip().lower()
-            if ovr in ('v','vertical'):
-                orientation_vertical = True
-            elif ovr in ('h','horizontal'):
-                orientation_vertical = False
-            else:
-                if vertical_mode == 'off':
-                    orientation_vertical = False
-                elif vertical_mode == 'on':
+                if not tr or not tr.strip():
+                    continue
+                # Per-bubble orientation override
+                ovr = orient_list[idx] if idx < len(orient_list) else None
+                if isinstance(ovr, str):
+                    ovr = ovr.strip().lower()
+                if ovr in ('v','vertical'):
                     orientation_vertical = True
+                elif ovr in ('h','horizontal'):
+                    orientation_vertical = False
                 else:
-                    orientation_vertical = should_draw_vertical(box, 'auto', vertical_ratio_trigger)
+                    if vertical_mode == 'off':
+                        orientation_vertical = False
+                    elif vertical_mode == 'on':
+                        orientation_vertical = True
+                    else:
+                        orientation_vertical = should_draw_vertical(box, 'auto', vertical_ratio_trigger)
 
-            # Per-bubble font size override
-            fsz = None
-            if idx < len(fsize_list):
-                try:
-                    fsz = int(fsize_list[idx]) if str(fsize_list[idx]).strip() not in ('', 'nan', 'None') else None
-                except Exception:
-                    fsz = None
+                # Per-bubble font size override
+                fsz = None
+                if idx < len(fsize_list):
+                    try:
+                        fsz = int(fsize_list[idx]) if str(fsize_list[idx]).strip() not in ('', 'nan', 'None') else None
+                    except Exception:
+                        fsz = None
 
-            # SFX heuristic: very tall or very wide boxes
-            w_box = box[2]-box[0]
-            h_box = box[3]-box[1]
-            aspect = max(h_box/w_box if w_box>0 else 99, w_box/h_box if h_box>0 else 99)
-            is_sfx = sfx_enable and (aspect >= sfx_min_aspect)
-            if orientation_vertical:
-                if fsz is not None:
-                    font = load_font(font_path, fsz)
-                else:
-                    for size in range(max_font_size, min_font_size-1, -2):
-                        font = load_font(font_path, size)
-                        line_h = draw.textbbox((0,0), '文', font=font)[3] - draw.textbbox((0,0), '文', font=font)[1]
-                        chars = [c for c in tr if c.strip()]
-                        total_h = int(len(chars) * line_h * line_spacing)
-                        if total_h <= (box[3]-box[1])*0.96:
-                            break
-                    # Fit by font size roughly: shrink until height fits with line spacing
-                    for size in range(max_font_size, min_font_size-1, -2):
-                        font = load_font(font_path, size)
-                        line_h = draw.textbbox((0,0), "文", font=font)[3] - draw.textbbox((0,0), "文", font=font)[1]
-                        chars = [c for c in tr if c.strip()]
-                        total_h = int(len(chars) * line_h * line_spacing)
-                        if total_h <= (box[3]-box[1])*0.96:
-                            break
+                # SFX heuristic: very tall or very wide boxes
+                w_box = box[2]-box[0]
+                h_box = box[3]-box[1]
+                aspect = max(h_box/w_box if w_box>0 else 99, w_box/h_box if h_box>0 else 99)
+                is_sfx = sfx_enable and (aspect >= sfx_min_aspect)
+                if orientation_vertical:
+                    if fsz is not None:
+                        font = load_font(font_path, fsz)
+                    else:
+                        for size in range(max_font_size, min_font_size-1, -2):
+                            font = load_font(font_path, size)
+                            line_h = draw.textbbox((0,0), '文', font=font)[3] - draw.textbbox((0,0), '文', font=font)[1]
+                            chars = [c for c in tr if c.strip()]
+                            total_h = int(len(chars) * line_h * line_spacing)
+                            if total_h <= (box[3]-box[1])*0.96:
+                                break
                     if is_sfx:
-                    font = load_font(sfx_font_path or font_path, font.size)
-                    # draw on overlay with alpha
-                    draw_vertical_block(draw_ov, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
-                    out_pil.alpha_composite(overlay)
-                    overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
-                else:
-                    draw_vertical_block(draw, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        font = load_font(sfx_font_path or font_path, font.size)
+                        draw_vertical_block(draw_ov, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        out_pil.alpha_composite(overlay)
+                        overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+                        draw_ov = ImageDraw.Draw(overlay)
+                    else:
+                        draw_vertical_block(draw, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
                 else:
                     lines, font = fit_text_into_box(draw, font_path, tr, box, max_font_size, min_font_size, line_spacing)
                     if is_sfx:
-                    font = load_font(sfx_font_path or font_path, font.size)
-                    draw_horizontal_block(draw_ov, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
-                    out_pil.alpha_composite(overlay)
-                    overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
-                else:
-                    draw_horizontal_block(draw, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        font = load_font(sfx_font_path or font_path, font.size)
+                        draw_horizontal_block(draw_ov, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        out_pil.alpha_composite(overlay)
+                        overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+                        draw_ov = ImageDraw.Draw(overlay)
+                    else:
+                        draw_horizontal_block(draw, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
 
             out_img = cv2.cvtColor(np.array(out_pil), cv2.COLOR_RGB2BGR)
             out_path = os.path.join(args.output, os.path.splitext(fname)[0] + ".png")
@@ -306,6 +315,141 @@ def main():
                     cv2.rectangle(dbg, (x1,y1), (x2,y2), (0,255,0), 2)
                 cv2.imwrite(os.path.join(dbg_dir, os.path.splitext(fname)[0] + "_boxes.png"), dbg)
         print("Typeset-only mode done.")
+        return
+
+    if args.mode == "typeset_json":
+        if not args.json_dir:
+            raise SystemExit("--mode typeset_json requires --json-dir pointing to JSON files.")
+        json_files = sorted([f for f in os.listdir(args.json_dir) if f.lower().endswith(".json")])
+        if not json_files:
+            raise SystemExit("No JSON files found in the specified --json-dir.")
+        for json_name in tqdm(json_files, desc="Typesetting from JSON"):
+            json_path = os.path.join(args.json_dir, json_name)
+            with open(json_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            page_name = payload.get("page") or payload.get("file")
+            if not page_name:
+                print(f"Skip: {json_name} missing page filename.")
+                continue
+            src_paths = []
+            if args.input:
+                src_paths.append(os.path.join(args.input, page_name))
+            src_paths.append(os.path.join(os.path.dirname(json_path), page_name))
+            src_paths.append(page_name)
+            in_path = None
+            for p in src_paths:
+                if os.path.exists(p):
+                    in_path = p
+                    break
+            if in_path is None:
+                print(f"Skip: source image for {page_name} not found.")
+                continue
+
+            img_bgr = cv2.imread(in_path, cv2.IMREAD_COLOR)
+            if img_bgr is None:
+                print(f"Skip unreadable: {page_name}")
+                continue
+
+            bubbles = payload.get("bubbles", [])
+            if not bubbles:
+                print(f"Skip: no bubbles in {json_name}")
+                continue
+            boxes_xyxy = []
+            translations = []
+            orient_list = []
+            fsize_list = []
+            for bubble in bubbles:
+                bbox = bubble.get("bbox") or bubble.get("box")
+                if not bbox or len(bbox) != 4:
+                    continue
+                x, y, w, h = bbox
+                boxes_xyxy.append((int(x), int(y), int(x + w), int(y + h)))
+                final_text = bubble.get("final_text")
+                translations.append(final_text if final_text is not None else bubble.get("translation", ""))
+                orient_list.append(bubble.get("orientation"))
+                fsize_list.append(bubble.get("font_size"))
+
+            if not boxes_xyxy:
+                print(f"Skip: invalid boxes in {json_name}")
+                continue
+
+            mask = mask_from_boxes(img_bgr.shape, boxes_xyxy, bubble_padding)
+            clean = inpaint_region(img_bgr, mask)
+
+            out_pil = Image.fromarray(cv2.cvtColor(clean, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(out_pil)
+            overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+            draw_ov = ImageDraw.Draw(overlay)
+
+            for idx, (box, tr) in enumerate(zip(boxes_xyxy, translations)):
+                if not tr or not str(tr).strip():
+                    continue
+                ovr = orient_list[idx] if idx < len(orient_list) else None
+                if isinstance(ovr, str):
+                    ovr = ovr.strip().lower()
+                if ovr in ('v','vertical'):
+                    orientation_vertical = True
+                elif ovr in ('h','horizontal'):
+                    orientation_vertical = False
+                else:
+                    if vertical_mode == 'off':
+                        orientation_vertical = False
+                    elif vertical_mode == 'on':
+                        orientation_vertical = True
+                    else:
+                        orientation_vertical = should_draw_vertical(box, 'auto', vertical_ratio_trigger)
+
+                fsz = None
+                if idx < len(fsize_list):
+                    try:
+                        fsz = int(fsize_list[idx]) if str(fsize_list[idx]).strip() not in ('', 'nan', 'None') else None
+                    except Exception:
+                        fsz = None
+
+                w_box = box[2]-box[0]
+                h_box = box[3]-box[1]
+                aspect = max(h_box/w_box if w_box>0 else 99, w_box/h_box if h_box>0 else 99)
+                is_sfx = sfx_enable and (aspect >= sfx_min_aspect)
+                if orientation_vertical:
+                    if fsz is not None:
+                        font = load_font(font_path, fsz)
+                    else:
+                        for size in range(max_font_size, min_font_size-1, -2):
+                            font = load_font(font_path, size)
+                            line_h = draw.textbbox((0,0), '文', font=font)[3] - draw.textbbox((0,0), '文', font=font)[1]
+                            chars = [c for c in tr if c.strip()]
+                            total_h = int(len(chars) * line_h * line_spacing)
+                            if total_h <= (box[3]-box[1])*0.96:
+                                break
+                    if is_sfx:
+                        font = load_font(sfx_font_path or font_path, font.size)
+                        draw_vertical_block(draw_ov, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        out_pil.alpha_composite(overlay)
+                        overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+                        draw_ov = ImageDraw.Draw(overlay)
+                    else:
+                        draw_vertical_block(draw, box, tr, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                else:
+                    lines, font = fit_text_into_box(draw, font_path, tr, box, max_font_size, min_font_size, line_spacing)
+                    if is_sfx:
+                        font = load_font(sfx_font_path or font_path, font.size)
+                        draw_horizontal_block(draw_ov, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
+                        out_pil.alpha_composite(overlay)
+                        overlay = Image.new('RGBA', out_pil.size, (0,0,0,0))
+                        draw_ov = ImageDraw.Draw(overlay)
+                    else:
+                        draw_horizontal_block(draw, box, lines, font, text_fill, stroke_fill, stroke_width, line_spacing)
+
+            out_img = cv2.cvtColor(np.array(out_pil), cv2.COLOR_RGB2BGR)
+            out_path = os.path.join(args.output, os.path.splitext(page_name)[0] + ".png")
+            cv2.imwrite(out_path, out_img)
+
+            if debug_draw:
+                dbg = img_bgr.copy()
+                for (x1,y1,x2,y2) in boxes_xyxy:
+                    cv2.rectangle(dbg, (x1,y1), (x2,y2), (0,255,0), 2)
+                cv2.imwrite(os.path.join(dbg_dir, os.path.splitext(page_name)[0] + "_boxes.png"), dbg)
+        print("Typeset-from-JSON mode done.")
         return
 
     # ===== full mode (OCR + translation + typeset) =====
@@ -434,6 +578,25 @@ def main():
                 "x1": box[0], "y1": box[1], "x2": box[2], "y2": box[3],
                 "jp": jp, "translation": tr
             })
+        os.makedirs(json_dir, exist_ok=True)
+        json_payload = {
+            "page": fname,
+            "target_language": target_lang,
+            "style": style_key,
+            "bubbles": []
+        }
+        for idx, (box, jp, tr) in enumerate(zip(boxes_xyxy, jp_texts, translations), start=1):
+            x1, y1, x2, y2 = box
+            json_payload["bubbles"].append({
+                "id": f"b{idx}",
+                "bbox": [int(x1), int(y1), int(x2 - x1), int(y2 - y1)],
+                "original_text": jp,
+                "translation": tr,
+                "final_text": tr
+            })
+        json_path = os.path.join(json_dir, os.path.splitext(fname)[0] + ".json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(json_payload, f, ensure_ascii=False, indent=2)
 
         # 3) Inpaint & typeset
         mask = mask_from_boxes(img_bgr.shape, boxes_xyxy, bubble_padding)
